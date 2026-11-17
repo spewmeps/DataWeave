@@ -64,7 +64,7 @@ class RagflowHttpClient:
         dataset_name: str,
         language: str,
         parser_id: str,
-    ) -> str:
+    ) -> tuple[str, str]:
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
         timeout = httpx.Timeout(20.0, connect=5.0)
         async with httpx.AsyncClient(
@@ -87,7 +87,7 @@ class RagflowHttpClient:
             if existing:
                 dataset_id = str(existing.get("id") or "")
                 if dataset_id:
-                    return dataset_id
+                    return dataset_id, "reused"
 
             created = await self._request(
                 client,
@@ -104,7 +104,7 @@ class RagflowHttpClient:
             data = created.get("data")
             if not isinstance(data, dict) or not data.get("id"):
                 raise RagflowApiError("RAGFlow 创建知识库成功但未返回 dataset ID")
-            return str(data["id"])
+            return str(data["id"]), "created"
 
     @staticmethod
     async def _request(client: httpx.AsyncClient, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
@@ -181,7 +181,7 @@ class RagflowSettingsService:
             else:
                 raise RagflowApiError("首次配置必须填写 RAGFlow API Key", status_code=400)
 
-            dataset_id = await self.client.ensure_dataset(
+            dataset_id, dataset_operation = await self.client.ensure_dataset(
                 base_url=request.base_url,
                 api_key=api_key,
                 dataset_name=request.dataset_name,
@@ -209,7 +209,7 @@ class RagflowSettingsService:
                 dataset_id,
                 request.dataset_name,
             )
-            return self.get()
+            return self.get().model_copy(update={"dataset_operation": dataset_operation})
 
     @staticmethod
     def _mask_key(value: str) -> str:

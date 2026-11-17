@@ -65,7 +65,7 @@
 | `DW-054` | [#54](https://github.com/spewmeps/DataWeave/issues/54) | Feature | P0 | backend | Open | 建立 RAGFlow 对账、漂移检测与删除 Saga |
 | `DW-055` | [#55](https://github.com/spewmeps/DataWeave/issues/55) | Feature | P0 | backend | Open | 实现 RAGFlow 基础检索网关和权限过滤 |
 | `DW-056` | [#56](https://github.com/spewmeps/DataWeave/issues/56) | Feature | P1 | backend | Open | 实现 DataWeave 统一 Chat Completion 与可选 RAGFlow Chat 模式 |
-| `DW-057` | [#57](https://github.com/spewmeps/DataWeave/issues/57) | Feature | P0 | fullstack | Open | 实现前端存储后端配置与数据位置标记 |
+| `DW-057` | [#57](https://github.com/spewmeps/DataWeave/issues/57) | Feature | P0 | fullstack | Open | 实现前端知识库配置与数据位置标记 |
 | `DW-046` | [#46](https://github.com/spewmeps/DataWeave/issues/46) | Bug | P1 | frontend | Open | 修复领域上下文预览任务与后端运行进度不一致 |
 | `DW-047` | [#47](https://github.com/spewmeps/DataWeave/issues/47) | Bug | P1 | fullstack | Open | 修复模板配置仅保存在浏览器导致跨设备丢失 |
 | `DW-048` | [#48](https://github.com/spewmeps/DataWeave/issues/48) | Bug | P1 | fullstack | Open | 修复领域上下文审核刷新后状态丢失 |
@@ -708,20 +708,20 @@
 
 ---
 
-## [DW-057] 实现前端存储后端配置与数据位置标记
+## [DW-057] 实现前端知识库配置与数据位置标记
 <!-- issue: number=57; state=open; labels=enhancement,priority:P0,area:fullstack,ragflow,integration,settings; assignees= -->
 <!-- issue-body -->
 ### 背景
 - 用户需要从 DataWeave 左侧设置入口配置 RAGFlow，而不是修改服务器文件；同时所有核心数据都必须明确显示实际存储后端。
 ### 范围
-- 左侧新增“存储后端配置”，支持填写 RAGFlow 服务根地址、API Key、默认知识库名称、语言和内置解析器。
+- 左侧新增“知识库配置”，支持填写 RAGFlow 服务根地址、API Key、默认知识库名称、语言和内置解析器。
 - 保存前验证 RAGFlow 凭据；按名称创建知识库，同名知识库存在时幂等复用，并保存远端 Dataset ID。
 - API Key 仅提交到后端，加密持久化；GET 只返回掩码和是否已配置，不返回明文。
 - 为文档、上传、模板、Run、Task、解析产物和配置响应增加统一 `storage_locations` 标记，并在文档列表、运行页和配置页展示。
 - 当前未同步到 RAGFlow 的历史文档继续标记为 DataWeave 本地文件，不提前伪装为远端数据。
 ### 验收标准
 - [ ] 配置页可读取、修改并保存 RAGFlow 配置，首次保存必须提供 Key，后续留空可保留原 Key。
-- [ ] 保存成功后 RAGFlow 存在填写名称的知识库，重复保存不创建同名副本。
+- [ ] 保存成功后通过真实 RAGFlow HTTP API 创建填写名称的知识库，重复保存不创建同名副本；响应明确区分本次创建或复用。
 - [ ] 数据库、API、日志和前端响应中不存在 API Key 明文；本地加密 Key 文件权限为 `0600`。
 - [ ] 核心 API 返回存储位置，前端能区分 DataWeave 本地数据与 RAGFlow 数据。
 - [ ] Provider Mock、加密持久化、Dataset 创建/复用和存储标记有后端测试；前端生产构建通过。

@@ -40,7 +40,7 @@ const pageTitle = computed(() => {
     runs: '解析运行',
     artifacts: '知识产物',
     retrieval: '检索测试',
-    settings: '存储后端配置',
+    settings: '知识库配置',
   }
   return labels[activeModule.value] || '论文入库'
 })

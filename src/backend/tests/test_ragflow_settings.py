@@ -52,6 +52,7 @@ def test_configuration_creates_dataset_and_masks_encrypted_key(tmp_path: Path) -
     assert configured.base_url == "http://ragflow.internal:18080"
     assert configured.dataset_id == "dataset_123"
     assert configured.status == "connected"
+    assert configured.dataset_operation == "created"
     assert configured.api_key_configured is True
     assert configured.api_key_masked == "••••••••test"
     assert len(requests) == 2
@@ -115,6 +116,7 @@ def test_configuration_reuses_exact_dataset_and_existing_key(tmp_path: Path) -> 
         )
     )
     assert updated.dataset_id == "dataset_existing"
+    assert updated.dataset_operation == "reused"
     assert calls == ["GET"]
 
 

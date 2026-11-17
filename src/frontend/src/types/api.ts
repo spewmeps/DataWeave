@@ -190,6 +190,7 @@ export interface RagflowConfiguration {
   language: string
   parser_id: string
   status: 'not_configured' | 'connected' | 'error'
+  dataset_operation?: 'created' | 'reused' | null
   last_verified_at?: string | null
   updated_at?: string | null
   storage_locations: StorageLocation[]

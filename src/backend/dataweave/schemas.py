@@ -290,6 +290,7 @@ class RagflowConfigurationResponse(BaseModel):
     language: str = "Chinese"
     parser_id: str = "paper"
     status: Literal["not_configured", "connected", "error"] = "not_configured"
+    dataset_operation: Literal["created", "reused"] | None = None
     last_verified_at: str | None = None
     updated_at: str | None = None
     storage_locations: list[StorageLocation] = Field(default_factory=sqlite_storage)

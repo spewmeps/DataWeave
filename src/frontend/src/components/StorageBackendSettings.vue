@@ -60,7 +60,8 @@ async function save() {
     }
     const saved = await updateRagflowConfiguration(input)
     applyConfiguration(saved)
-    success.value = `连接验证成功，知识库“${saved.dataset_name}”已${saved.dataset_id ? '创建或复用' : '配置'}。`
+    const action = saved.dataset_operation === 'created' ? '已通过真实 RAGFlow API 创建' : '已在 RAGFlow 中验证并复用'
+    success.value = `连接验证成功，知识库“${saved.dataset_name}”${action}。`
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : 'RAGFlow 配置保存失败。'
   } finally {
@@ -78,11 +79,11 @@ onMounted(load)
 <template>
   <section class="backend-settings-page">
     <div class="page-heading settings-heading">
-      <div><span class="eyebrow">SETTINGS / STORAGE BACKENDS</span><h1>存储后端配置</h1><p>配置 DataWeave 使用的内容服务，并明确每类数据的权威存储位置。</p></div>
+      <div><span class="eyebrow">SETTINGS / KNOWLEDGE BASE</span><h1>知识库配置</h1><p>连接 RAGFlow 并创建 DataWeave 使用的默认知识库，同时明确各类数据的权威存储位置。</p></div>
       <div class="tech-status" :class="{ offline: configuration?.status !== 'connected' }"><i /><span>RAGFlow Provider</span><strong>{{ configuration?.status === 'connected' ? 'CONNECTED' : 'NOT CONFIGURED' }}</strong></div>
     </div>
 
-    <div v-if="loading" class="center-state">正在读取存储后端配置…</div>
+    <div v-if="loading" class="center-state">正在读取知识库配置…</div>
     <template v-else>
       <div v-if="error" class="settings-message error"><span>!</span><p>{{ error }}</p></div>
       <div v-if="success" class="settings-message success"><span>✓</span><p>{{ success }}</p></div>

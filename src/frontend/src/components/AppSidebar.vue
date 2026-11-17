@@ -36,7 +36,7 @@ const items = computed(() => [
     </nav>
 
     <div class="sidebar-footer">
-      <button :class="{ active: active === 'settings' }" @click="emit('select', 'settings')"><span class="nav-icon">⚙</span><span>存储后端配置</span></button>
+      <button :class="{ active: active === 'settings' }" @click="emit('select', 'settings')"><span class="nav-icon">⚙</span><span>知识库配置</span></button>
       <div class="profile"><span>LW</span><div><strong>Lin Wei</strong><small>Domain analyst</small></div><b>···</b></div>
     </div>
   </aside>
