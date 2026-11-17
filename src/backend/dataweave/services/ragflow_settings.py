@@ -5,6 +5,7 @@ import os
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import httpx
 from cryptography.fernet import Fernet, InvalidToken
@@ -12,7 +13,12 @@ from cryptography.fernet import Fernet, InvalidToken
 from dataweave.config import settings
 from dataweave.observability import application_logger
 from dataweave.schemas import RagflowConfigurationResponse, RagflowConfigurationUpdate
-from dataweave.services.state_repository import IntegrationSetting, StateRepository, state_repository
+from dataweave.services.state_repository import (
+    IntegrationSetting,
+    KnowledgeBaseConfiguration,
+    StateRepository,
+    state_repository,
+)
 
 
 class RagflowApiError(RuntimeError):
@@ -154,11 +160,27 @@ class RagflowSettingsService:
         self._lock = asyncio.Lock()
 
     def get(self) -> RagflowConfigurationResponse:
-        record = self.repository.get_integration_setting("ragflow")
-        if not record:
-            return RagflowConfigurationResponse()
+        records = self.repository.list_knowledge_base_configurations("ragflow")
+        if records:
+            return self._response(records[0])
+        return RagflowConfigurationResponse()
+
+    def list(self) -> list[RagflowConfigurationResponse]:
+        return [
+            self._response(record)
+            for record in self.repository.list_knowledge_base_configurations("ragflow")
+        ]
+
+    def get_by_id(self, configuration_id: str) -> RagflowConfigurationResponse | None:
+        record = self.repository.get_knowledge_base_configuration(configuration_id)
+        if not record or record.provider != "ragflow":
+            return None
+        return self._response(record)
+
+    def _response(self, record: KnowledgeBaseConfiguration) -> RagflowConfigurationResponse:
         api_key = self.cipher.decrypt(record.api_key_ciphertext)
         return RagflowConfigurationResponse(
+            id=record.id,
             base_url=record.base_url,
             api_key_configured=True,
             api_key_masked=self._mask_key(api_key),
@@ -168,18 +190,40 @@ class RagflowSettingsService:
             parser_id=record.parser_id,
             status="connected" if record.status == "connected" else "error",
             last_verified_at=record.last_verified_at,
+            created_at=record.created_at,
             updated_at=record.updated_at,
         )
 
-    async def configure(self, request: RagflowConfigurationUpdate) -> RagflowConfigurationResponse:
+    async def configure(
+        self,
+        request: RagflowConfigurationUpdate,
+        *,
+        configuration_id: str | None = None,
+    ) -> RagflowConfigurationResponse:
         async with self._lock:
-            previous = self.repository.get_integration_setting("ragflow")
+            previous = (
+                self.repository.get_knowledge_base_configuration(configuration_id)
+                if configuration_id
+                else None
+            )
+            if not configuration_id:
+                previous = next(
+                    (
+                        item
+                        for item in self.repository.list_knowledge_base_configurations("ragflow")
+                        if item.base_url == request.base_url
+                        and item.dataset_name.casefold() == request.dataset_name.casefold()
+                    ),
+                    None,
+                )
+            if configuration_id and (not previous or previous.provider != "ragflow"):
+                raise RagflowApiError("知识库配置不存在", status_code=404)
             if request.api_key:
                 api_key = request.api_key.strip()
             elif previous:
                 api_key = self.cipher.decrypt(previous.api_key_ciphertext)
             else:
-                raise RagflowApiError("首次配置必须填写 RAGFlow API Key", status_code=400)
+                raise RagflowApiError("新增知识库配置必须填写 RAGFlow API Key", status_code=400)
 
             dataset_id, dataset_operation = await self.client.ensure_dataset(
                 base_url=request.base_url,
@@ -189,11 +233,41 @@ class RagflowSettingsService:
                 parser_id=request.parser_id,
             )
             now = datetime.now(UTC).isoformat()
+            matching = next(
+                (
+                    item
+                    for item in self.repository.list_knowledge_base_configurations("ragflow")
+                    if item.base_url == request.base_url and item.dataset_id == dataset_id
+                ),
+                None,
+            )
+            if matching and configuration_id and matching.id != configuration_id:
+                raise RagflowApiError("该 RAGFlow 知识库已经存在于配置列表中", status_code=409)
+            target_id = configuration_id or (matching.id if matching else f"kb_{uuid4().hex[:16]}")
+            created_at = previous.created_at if previous else matching.created_at if matching else now
+            encrypted_key = self.cipher.encrypt(api_key)
+            self.repository.save_knowledge_base_configuration(
+                KnowledgeBaseConfiguration(
+                    id=target_id,
+                    provider="ragflow",
+                    base_url=request.base_url,
+                    api_key_ciphertext=encrypted_key,
+                    dataset_name=request.dataset_name,
+                    dataset_id=dataset_id,
+                    language=request.language,
+                    parser_id=request.parser_id,
+                    status="connected",
+                    last_verified_at=now,
+                    created_at=created_at,
+                    updated_at=now,
+                )
+            )
+            # Keep the original singleton synchronized for backward-compatible callers.
             self.repository.save_integration_setting(
                 IntegrationSetting(
                     provider="ragflow",
                     base_url=request.base_url,
-                    api_key_ciphertext=self.cipher.encrypt(api_key),
+                    api_key_ciphertext=encrypted_key,
                     dataset_name=request.dataset_name,
                     dataset_id=dataset_id,
                     language=request.language,
@@ -204,12 +278,16 @@ class RagflowSettingsService:
                 )
             )
             application_logger.info(
-                "RAGFlow configuration verified: base_url=%s dataset_id=%s dataset_name=%s",
+                "RAGFlow configuration verified: configuration_id=%s base_url=%s dataset_id=%s dataset_name=%s",
+                target_id,
                 request.base_url,
                 dataset_id,
                 request.dataset_name,
             )
-            return self.get().model_copy(update={"dataset_operation": dataset_operation})
+            saved = self.get_by_id(target_id)
+            if not saved:
+                raise RuntimeError("知识库配置保存后无法读取")
+            return saved.model_copy(update={"dataset_operation": dataset_operation})
 
     @staticmethod
     def _mask_key(value: str) -> str:

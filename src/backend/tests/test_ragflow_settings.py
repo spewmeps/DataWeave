@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from dataweave.main import app
 from dataweave.schemas import RagflowConfigurationUpdate
 from dataweave.services.ragflow_settings import CredentialCipher, RagflowHttpClient, RagflowSettingsService
-from dataweave.services.state_repository import StateRepository
+from dataweave.services.state_repository import IntegrationSetting, StateRepository
 
 
 def test_configuration_creates_dataset_and_masks_encrypted_key(tmp_path: Path) -> None:
@@ -124,3 +124,84 @@ def test_storage_markers_are_present_on_core_api() -> None:
     response = TestClient(app).get("/api/templates/default")
     assert response.status_code == 200
     assert response.json()["storage_locations"][0]["service"] == "dataweave"
+
+
+def test_knowledge_base_configurations_are_listed_and_have_details(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(200, json={"code": 0, "data": []})
+        body = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={"code": 0, "data": {"id": f"dataset_{body['name'].lower()}"}},
+        )
+
+    service = RagflowSettingsService(
+        StateRepository(tmp_path / "dataweave.db"),
+        client=RagflowHttpClient(transport=httpx.MockTransport(handler)),
+        cipher=CredentialCipher(tmp_path / "credentials.key"),
+    )
+    first = asyncio.run(
+        service.configure(
+            RagflowConfigurationUpdate(
+                base_url="http://ragflow.internal:18080",
+                api_key="ragflow-first-key",
+                dataset_name="Papers",
+            )
+        )
+    )
+    second = asyncio.run(
+        service.configure(
+            RagflowConfigurationUpdate(
+                base_url="http://ragflow.internal:18080",
+                api_key="ragflow-second-key",
+                dataset_name="Manuals",
+            )
+        )
+    )
+
+    assert first.id and second.id and first.id != second.id
+    assert {item.dataset_name for item in service.list()} == {"Papers", "Manuals"}
+    assert service.get_by_id(first.id).api_key_masked == "••••••••-key"  # type: ignore[union-attr]
+
+    monkeypatch.setattr("dataweave.api.ragflow_settings_service", service)
+    client = TestClient(app)
+    listed = client.get("/api/knowledge-bases")
+    assert listed.status_code == 200
+    assert len(listed.json()) == 2
+    detail = client.get(f"/api/knowledge-bases/{first.id}")
+    assert detail.status_code == 200
+    assert detail.json()["dataset_name"] == "Papers"
+    assert "ragflow-first-key" not in detail.text
+    assert client.get("/api/knowledge-bases/missing").status_code == 404
+
+
+def test_existing_singleton_configuration_is_migrated_to_list(tmp_path: Path) -> None:
+    database_path = tmp_path / "dataweave.db"
+    repository = StateRepository(database_path)
+    cipher = CredentialCipher(tmp_path / "credentials.key")
+    repository.save_integration_setting(
+        IntegrationSetting(
+            provider="ragflow",
+            base_url="http://localhost:18080",
+            api_key_ciphertext=cipher.encrypt("ragflow-migrated-key"),
+            dataset_name="Existing DataWeave",
+            dataset_id="dataset_existing",
+            language="Chinese",
+            parser_id="paper",
+            status="connected",
+            last_verified_at="2026-11-17T08:00:00+00:00",
+            updated_at="2026-11-17T08:00:00+00:00",
+        )
+    )
+
+    reopened = RagflowSettingsService(
+        StateRepository(database_path),
+        cipher=cipher,
+    )
+    migrated = reopened.list()
+    assert len(migrated) == 1
+    assert migrated[0].dataset_id == "dataset_existing"
+    assert migrated[0].created_at == "2026-11-17T08:00:00+00:00"

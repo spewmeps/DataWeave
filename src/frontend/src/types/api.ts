@@ -181,6 +181,7 @@ export interface CreateRunResponse {
 }
 
 export interface RagflowConfiguration {
+  id?: string | null
   provider: 'ragflow'
   base_url: string
   api_key_configured: boolean
@@ -192,6 +193,7 @@ export interface RagflowConfiguration {
   status: 'not_configured' | 'connected' | 'error'
   dataset_operation?: 'created' | 'reused' | null
   last_verified_at?: string | null
+  created_at?: string | null
   updated_at?: string | null
   storage_locations: StorageLocation[]
 }

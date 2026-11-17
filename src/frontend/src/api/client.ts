@@ -33,6 +33,26 @@ export async function updateRagflowConfiguration(input: RagflowConfigurationInpu
   )
 }
 
+export async function getKnowledgeBaseConfigurations(): Promise<RagflowConfiguration[]> {
+  return parseResponse(await fetch('/api/knowledge-bases'))
+}
+
+export async function getKnowledgeBaseConfiguration(id: string): Promise<RagflowConfiguration> {
+  return parseResponse(await fetch(`/api/knowledge-bases/${encodeURIComponent(id)}`))
+}
+
+export async function createKnowledgeBaseConfiguration(input: RagflowConfigurationInput): Promise<RagflowConfiguration> {
+  return parseResponse(await fetch('/api/knowledge-bases', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  }))
+}
+
+export async function updateKnowledgeBaseConfiguration(id: string, input: RagflowConfigurationInput): Promise<RagflowConfiguration> {
+  return parseResponse(await fetch(`/api/knowledge-bases/${encodeURIComponent(id)}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  }))
+}
+
 export async function executeDocument(documentVersionId: string): Promise<CreateRunResponse> {
   return parseResponse(
     await fetch(`/api/documents/${documentVersionId}/runs`, {

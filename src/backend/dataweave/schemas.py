@@ -281,6 +281,7 @@ class RagflowConfigurationUpdate(BaseModel):
 
 
 class RagflowConfigurationResponse(BaseModel):
+    id: str | None = None
     provider: Literal["ragflow"] = "ragflow"
     base_url: str = "http://localhost:18080"
     api_key_configured: bool = False
@@ -292,6 +293,7 @@ class RagflowConfigurationResponse(BaseModel):
     status: Literal["not_configured", "connected", "error"] = "not_configured"
     dataset_operation: Literal["created", "reused"] | None = None
     last_verified_at: str | None = None
+    created_at: str | None = None
     updated_at: str | None = None
     storage_locations: list[StorageLocation] = Field(default_factory=sqlite_storage)
 

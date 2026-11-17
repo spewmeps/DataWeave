@@ -40,6 +40,22 @@ class IntegrationSetting:
     updated_at: str
 
 
+@dataclass(slots=True)
+class KnowledgeBaseConfiguration:
+    id: str
+    provider: str
+    base_url: str
+    api_key_ciphertext: str
+    dataset_name: str
+    dataset_id: str
+    language: str
+    parser_id: str
+    status: str
+    last_verified_at: str
+    created_at: str
+    updated_at: str
+
+
 class StateRepository:
     """SQLite persistence for the document registry and runtime snapshots.
 
@@ -116,6 +132,44 @@ class StateRepository:
                     last_verified_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS knowledge_base_configurations (
+                    id TEXT PRIMARY KEY,
+                    provider TEXT NOT NULL,
+                    base_url TEXT NOT NULL,
+                    api_key_ciphertext TEXT NOT NULL,
+                    dataset_name TEXT NOT NULL,
+                    dataset_id TEXT NOT NULL,
+                    language TEXT NOT NULL,
+                    parser_id TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    last_verified_at TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE(provider, base_url, dataset_id)
+                )
+                """
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_knowledge_base_configurations_updated_at "
+                "ON knowledge_base_configurations(updated_at DESC)"
+            )
+            # Preserve the configuration created before knowledge bases became a list.
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO knowledge_base_configurations (
+                    id, provider, base_url, api_key_ciphertext, dataset_name,
+                    dataset_id, language, parser_id, status,
+                    last_verified_at, created_at, updated_at
+                )
+                SELECT
+                    'kb_' || lower(hex(randomblob(8))), provider, base_url,
+                    api_key_ciphertext, dataset_name, dataset_id, language,
+                    parser_id, status, last_verified_at, updated_at, updated_at
+                FROM integration_settings
                 """
             )
 
@@ -210,6 +264,59 @@ class StateRepository:
                     updated_at = excluded.updated_at
                 """,
                 asdict(setting),
+            )
+
+    def list_knowledge_base_configurations(
+        self, provider: str | None = None
+    ) -> list[KnowledgeBaseConfiguration]:
+        query = "SELECT * FROM knowledge_base_configurations"
+        parameters: tuple[str, ...] = ()
+        if provider:
+            query += " WHERE provider = ?"
+            parameters = (provider,)
+        query += " ORDER BY updated_at DESC, id ASC"
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(query, parameters).fetchall()
+        return [KnowledgeBaseConfiguration(**dict(row)) for row in rows]
+
+    def get_knowledge_base_configuration(
+        self, configuration_id: str
+    ) -> KnowledgeBaseConfiguration | None:
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM knowledge_base_configurations WHERE id = ?",
+                (configuration_id,),
+            ).fetchone()
+        return KnowledgeBaseConfiguration(**dict(row)) if row else None
+
+    def save_knowledge_base_configuration(
+        self, configuration: KnowledgeBaseConfiguration
+    ) -> None:
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO knowledge_base_configurations (
+                    id, provider, base_url, api_key_ciphertext, dataset_name,
+                    dataset_id, language, parser_id, status,
+                    last_verified_at, created_at, updated_at
+                ) VALUES (
+                    :id, :provider, :base_url, :api_key_ciphertext, :dataset_name,
+                    :dataset_id, :language, :parser_id, :status,
+                    :last_verified_at, :created_at, :updated_at
+                )
+                ON CONFLICT(id) DO UPDATE SET
+                    provider = excluded.provider,
+                    base_url = excluded.base_url,
+                    api_key_ciphertext = excluded.api_key_ciphertext,
+                    dataset_name = excluded.dataset_name,
+                    dataset_id = excluded.dataset_id,
+                    language = excluded.language,
+                    parser_id = excluded.parser_id,
+                    status = excluded.status,
+                    last_verified_at = excluded.last_verified_at,
+                    updated_at = excluded.updated_at
+                """,
+                asdict(configuration),
             )
 
     def save_run(

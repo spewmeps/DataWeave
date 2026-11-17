@@ -97,12 +97,82 @@ async def get_ragflow_configuration() -> RagflowConfigurationResponse:
         ) from error
 
 
+@router.get("/knowledge-bases", response_model=list[RagflowConfigurationResponse])
+async def list_knowledge_base_configurations() -> list[RagflowConfigurationResponse]:
+    try:
+        return ragflow_settings_service.list()
+    except RuntimeError as error:
+        raise HTTPException(
+            status_code=500,
+            detail={"code": "credential_unavailable", "message": str(error)},
+        ) from error
+
+
+@router.get("/knowledge-bases/{configuration_id}", response_model=RagflowConfigurationResponse)
+async def get_knowledge_base_configuration(configuration_id: str) -> RagflowConfigurationResponse:
+    try:
+        configuration = ragflow_settings_service.get_by_id(configuration_id)
+    except RuntimeError as error:
+        raise HTTPException(
+            status_code=500,
+            detail={"code": "credential_unavailable", "message": str(error)},
+        ) from error
+    if not configuration:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "knowledge_base_not_found", "message": "知识库配置不存在"},
+        )
+    return configuration
+
+
+@router.post(
+    "/knowledge-bases",
+    response_model=RagflowConfigurationResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_knowledge_base_configuration(
+    request: RagflowConfigurationUpdate,
+) -> RagflowConfigurationResponse:
+    return await _save_knowledge_base_configuration(request)
+
+
+@router.put("/knowledge-bases/{configuration_id}", response_model=RagflowConfigurationResponse)
+async def update_knowledge_base_configuration(
+    configuration_id: str,
+    request: RagflowConfigurationUpdate,
+) -> RagflowConfigurationResponse:
+    return await _save_knowledge_base_configuration(request, configuration_id=configuration_id)
+
+
+async def _save_knowledge_base_configuration(
+    request: RagflowConfigurationUpdate,
+    *,
+    configuration_id: str | None = None,
+) -> RagflowConfigurationResponse:
+    try:
+        return await ragflow_settings_service.configure(
+            request,
+            configuration_id=configuration_id,
+        )
+    except RagflowApiError as error:
+        raise HTTPException(
+            status_code=error.status_code,
+            detail={"code": "ragflow_configuration_failed", "message": str(error)},
+        ) from error
+    except RuntimeError as error:
+        raise HTTPException(
+            status_code=500,
+            detail={"code": "credential_unavailable", "message": str(error)},
+        ) from error
+
+
 @router.put("/settings/ragflow", response_model=RagflowConfigurationResponse)
 async def update_ragflow_configuration(
     request: RagflowConfigurationUpdate,
 ) -> RagflowConfigurationResponse:
     try:
-        return await ragflow_settings_service.configure(request)
+        current = ragflow_settings_service.get()
+        return await ragflow_settings_service.configure(request, configuration_id=current.id)
     except RagflowApiError as error:
         raise HTTPException(
             status_code=error.status_code,
