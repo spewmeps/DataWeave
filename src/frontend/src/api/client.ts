@@ -1,4 +1,4 @@
-import type { AgentTrace, CreateRunResponse, DocumentSummary, PaperTemplate, RagflowConfiguration, RagflowConfigurationInput, RunSnapshot, TaskNode, UploadRecord } from '@/types/api'
+import type { AgentTrace, CreateRunResponse, DocumentSummary, PaperTemplate, RagflowConfiguration, RagflowConfigurationInput, RunArtifactManifest, RunSnapshot, TaskNode, UploadRecord } from '@/types/api'
 
 type ApiErrorBody = { detail?: { message?: string } | string }
 
@@ -119,6 +119,10 @@ export async function getRun(runId: string): Promise<RunSnapshot> {
 
 export async function getTask(runId: string, taskId: string): Promise<TaskNode> {
   return parseResponse(await fetch(`/api/runs/${runId}/tasks/${taskId}`))
+}
+
+export async function getRunArtifacts(runId: string): Promise<RunArtifactManifest> {
+  return parseResponse(await fetch(`/api/runs/${runId}/artifacts`))
 }
 
 export async function getAgentTrace(runId: string, agentId: string): Promise<AgentTrace> {

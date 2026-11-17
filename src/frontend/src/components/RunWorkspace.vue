@@ -1,17 +1,19 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import DomainContextWorkspace from '@/components/DomainContextWorkspace.vue'
+import ArtifactExplorer from '@/components/ArtifactExplorer.vue'
+import JsonViewer from '@/components/JsonViewer.vue'
 import { buildDomainContextArtifact, buildDomainContextTask } from '@/data/domainContextDemo'
-import { getAgentTrace, getRun, publishRun, retryRun } from '@/api/client'
+import { getAgentTrace, getRun, getRunArtifacts, publishRun, retryRun } from '@/api/client'
 import { useRunStream } from '@/composables/useRunStream'
-import type { AgentTrace, AgentTraceEvent, RunSnapshot, SchemaFieldResult, TaskNode, TaskStatus } from '@/types/api'
+import type { AgentTrace, AgentTraceEvent, ArtifactRoot, RunSnapshot, SchemaFieldResult, TaskNode, TaskStatus } from '@/types/api'
 
 const props = defineProps<{ runId: string }>()
 const emit = defineEmits<{ reset: []; back: []; retried: [runId: string] }>()
 
 const run = ref<RunSnapshot | null>(null)
 const selectedTaskId = ref('receive')
-const activeTab = ref<'overview' | 'input' | 'output' | 'metrics' | 'raw'>('overview')
+const activeTab = ref<'overview' | 'input' | 'output' | 'files' | 'metrics' | 'raw'>('overview')
 const loading = ref(true)
 const publishing = ref(false)
 const retrying = ref(false)
@@ -20,6 +22,7 @@ const error = ref('')
 const agentTrace = ref<AgentTrace | null>(null)
 const agentTraceLoading = ref(false)
 const agentTraceError = ref('')
+const artifactRoots = ref<ArtifactRoot[]>([])
 const runIdRef = computed(() => props.runId || null)
 let requestVersion = 0
 let traceRequestVersion = 0
@@ -69,6 +72,24 @@ const schemaFields = computed<SchemaFieldResult[]>(() => {
 })
 const agentResultFields = computed(() => agentTrace.value?.result.fields || [])
 const summaryOutput = computed(() => Object.entries(selectedTask.value?.output || {}).filter(([key]) => !['fields', 'terms'].includes(key)))
+const resolvedTaskInput = computed(() => {
+  const task = selectedTask.value
+  if (!task || !run.value) return {}
+  const upstreamByTask: Record<string, string[]> = {
+    parse: ['receive'], parser_submit: ['receive'], parser_wait: ['parser_submit'], parser_persist: ['parser_wait'],
+    document_json: ['parse'], extract: ['document_json'], schema_metadata: ['document_json'],
+    schema_research: ['document_json'], schema_method: ['document_json'], schema_experiment: ['document_json'],
+    schema_merge: ['schema_metadata', 'schema_research', 'schema_method', 'schema_experiment'],
+    materialize: ['document_json'], page_index: ['document_json'], graph: ['document_json'], tree: ['document_json'],
+    hybrid_retrieval: ['document_json'], validate: ['extract', 'materialize'], publish: ['validate'],
+  }
+  const upstream = (upstreamByTask[task.id] || []).map((id) => flatTasks.value.find((item) => item.id === id)).filter(Boolean)
+  return {
+    run: { id: run.value.id, document_id: run.value.document_id, document_version_id: run.value.document_version_id },
+    parameters: task.input,
+    upstream: Object.fromEntries(upstream.map((item) => [item!.id, item!.output])),
+  }
+})
 const statusText: Record<string, string> = {
   pending: '等待中', queued: '排队中', running: '执行中', completed: '已完成', failed: '失败', retrying: '重试中', skipped: '已跳过', cancelled: '已取消',
   created: '已创建', awaiting_review: '等待审核', published: '已发布', partially_completed: '部分完成',
@@ -86,10 +107,21 @@ async function refresh() {
       if (runningTask) selectedTaskId.value = runningTask.id
     }
     if (selectedAgentLogId.value) void refreshAgentTrace(false)
+    if (!artifactRoots.value.length || ['awaiting_review', 'published', 'partially_completed', 'failed', 'cancelled'].includes(snapshot.status)) {
+      void refreshArtifacts()
+    }
   } catch (cause) {
     if (alive && version === requestVersion) error.value = cause instanceof Error ? cause.message : '无法读取运行状态。'
   } finally {
     if (alive && version === requestVersion) loading.value = false
+  }
+}
+
+async function refreshArtifacts() {
+  try {
+    artifactRoots.value = (await getRunArtifacts(props.runId)).roots
+  } catch {
+    artifactRoots.value = []
   }
 }
 
@@ -228,6 +260,7 @@ watch(() => props.runId, () => {
   activeTab.value = 'overview'
   retryError.value = ''
   loading.value = true
+  artifactRoots.value = []
   refresh()
 }, { immediate: true })
 watch(selectedAgentLogId, () => {
@@ -236,7 +269,7 @@ watch(selectedAgentLogId, () => {
   void refreshAgentTrace(true)
 })
 watch(finished, (isFinished) => {
-  if (isFinished) stopStream()
+  if (isFinished) { stopStream(); void refreshArtifacts() }
 })
 onBeforeUnmount(() => { alive = false; requestVersion += 1; traceRequestVersion += 1 })
 </script>
@@ -310,8 +343,8 @@ onBeforeUnmount(() => { alive = false; requestVersion += 1; traceRequestVersion 
           </header>
 
           <nav class="detail-tabs">
-            <button v-for="tab in (['overview', 'input', 'output', 'metrics', 'raw'] as const)" :key="tab" :class="{ active: activeTab === tab }" @click="activeTab = tab">
-              {{ { overview: '概览', input: '输入', output: '输出', metrics: '指标', raw: '原始数据' }[tab] }}
+            <button v-for="tab in (['overview', 'input', 'output', 'files', 'metrics', 'raw'] as const)" :key="tab" :class="{ active: activeTab === tab }" @click="activeTab = tab">
+              {{ { overview: '概览', input: '输入', output: '输出', files: '文件', metrics: '指标', raw: '原始数据' }[tab] }}
             </button>
           </nav>
 
@@ -384,7 +417,12 @@ onBeforeUnmount(() => { alive = false; requestVersion += 1; traceRequestVersion 
             </template>
 
             <template v-else-if="activeTab === 'input' || activeTab === 'output'">
-              <section class="json-section"><div class="section-head"><h4>{{ activeTab === 'input' ? '任务输入' : '任务输出' }}</h4><span>JSON</span></div><pre>{{ JSON.stringify(activeTab === 'input' ? selectedTask.input : selectedTask.output, null, 2) }}</pre></section>
+              <section class="json-section"><div class="section-head"><h4>{{ activeTab === 'input' ? '任务输入' : '任务输出' }}</h4><span>{{ Object.keys(activeTab === 'input' ? resolvedTaskInput : selectedTask.output).length }} 个字段</span></div><JsonViewer :value="activeTab === 'input' ? resolvedTaskInput : selectedTask.output" :filename="`${selectedTask.id}-${activeTab}.json`" /></section>
+              <section v-if="activeTab === 'output'" class="detail-section artifact-output-section"><div class="section-head"><h4>输出文件与目录</h4><span>ARTIFACT REGISTRY</span></div><ArtifactExplorer :roots="artifactRoots" :task-id="selectedTask.id" /></section>
+            </template>
+
+            <template v-else-if="activeTab === 'files'">
+              <ArtifactExplorer :roots="artifactRoots" :task-id="selectedTask.id" />
             </template>
 
             <template v-else-if="activeTab === 'metrics'">
@@ -393,7 +431,7 @@ onBeforeUnmount(() => { alive = false; requestVersion += 1; traceRequestVersion 
             </template>
 
             <template v-else>
-              <section class="json-section"><div class="section-head"><h4>Task Snapshot</h4><span>READ ONLY</span></div><pre>{{ JSON.stringify(selectedTask, null, 2) }}</pre></section>
+              <section class="json-section"><div class="section-head"><h4>Task Snapshot</h4><span>READ ONLY</span></div><JsonViewer :value="selectedTask" :filename="`${selectedTask.id}-snapshot.json`" /></section>
             </template>
           </div>
         </main>

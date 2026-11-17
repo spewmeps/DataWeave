@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import APIRouter, File, Header, HTTPException, UploadFile, status
+from fastapi import APIRouter, File, Header, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse, StreamingResponse
 
 from dataweave.config import settings
@@ -18,6 +18,7 @@ from dataweave.schemas import (
     ParseArtifactResponse,
     RagflowConfigurationResponse,
     RagflowConfigurationUpdate,
+    RunArtifactManifest,
     RunSnapshot,
     TaskNode,
     TemplateResponse,
@@ -28,11 +29,13 @@ from dataweave.services.parsers import artifact_repository
 from dataweave.services.parsers.repository import ParseArtifactRecord
 from dataweave.services.state_repository import state_repository
 from dataweave.services.ragflow_settings import RagflowApiError, ragflow_settings_service
+from dataweave.services.artifact_browser import ArtifactBrowser
 from dataweave.observability import agent_log_store, application_logger, run_log_store
 from dataweave.template_catalog import paper_analysis_template
 
 
 router = APIRouter(prefix=settings.api_prefix)
+artifact_browser = ArtifactBrowser(state_repository, artifact_repository)
 
 
 def create_run_response(snapshot: RunSnapshot) -> CreateRunResponse:
@@ -509,6 +512,43 @@ async def get_task(run_id: str, task_id: str) -> TaskNode:
     if not task:
         raise HTTPException(status_code=404, detail={"code": "task_not_found", "message": "任务节点不存在。"})
     return task
+
+
+@router.get("/runs/{run_id}/artifacts", response_model=RunArtifactManifest)
+async def get_run_artifacts(run_id: str) -> RunArtifactManifest:
+    snapshot = await run_manager.get_run(run_id)
+    if not snapshot:
+        raise HTTPException(status_code=404, detail={"code": "run_not_found", "message": "运行不存在。"})
+    return artifact_browser.manifest(snapshot)
+
+
+@router.get("/runs/{run_id}/artifacts/{root_id}/content")
+async def read_run_artifact(
+    run_id: str,
+    root_id: str,
+    path: str = Query(min_length=1, max_length=4096),
+    download: bool = False,
+) -> FileResponse:
+    snapshot = await run_manager.get_run(run_id)
+    if not snapshot:
+        raise HTTPException(status_code=404, detail={"code": "run_not_found", "message": "运行不存在。"})
+    try:
+        resolved = artifact_browser.resolve_file(snapshot, root_id, path)
+    except ValueError as error:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "invalid_artifact_path", "message": str(error)},
+        ) from error
+    except FileNotFoundError as error:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "artifact_file_not_found", "message": str(error)},
+        ) from error
+    return FileResponse(
+        resolved,
+        filename=resolved.name if download else None,
+        content_disposition_type="attachment" if download else "inline",
+    )
 
 
 @router.get("/runs/{run_id}/events")

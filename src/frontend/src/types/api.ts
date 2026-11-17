@@ -148,6 +148,31 @@ export interface TaskNode {
   storage_locations: StorageLocation[]
 }
 
+export interface ArtifactTreeEntry {
+  name: string
+  path: string
+  kind: 'file' | 'directory'
+  size?: number | null
+  mime_type?: string | null
+  content_url?: string | null
+  download_url?: string | null
+  children: ArtifactTreeEntry[]
+}
+
+export interface ArtifactRoot {
+  id: string
+  label: string
+  description: string
+  task_ids: string[]
+  entries: ArtifactTreeEntry[]
+  storage_locations: StorageLocation[]
+}
+
+export interface RunArtifactManifest {
+  run_id: string
+  roots: ArtifactRoot[]
+}
+
 export interface RunSnapshot {
   id: string
   document_id: string

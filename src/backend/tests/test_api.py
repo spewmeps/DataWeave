@@ -120,6 +120,9 @@ def test_upload_and_create_run() -> None:
             "parser_persist",
         }
         assert all(child["status"] == "completed" for child in parse_task["children"])
+        receive_task = next(task for task in final["tasks"] if task["id"] == "receive")
+        assert receive_task["input"]["document_version_id"] == stored["document_version_id"]
+        assert receive_task["input"]["filename"] == "paper.pdf"
 
         extraction_task = next(task for task in final["tasks"] if task["id"] == "extract")
         assert extraction_task["executor"] == "DeepAgentsSchemaMapper"
@@ -151,6 +154,26 @@ def test_upload_and_create_run() -> None:
         assert middle_json.status_code == 200
         assert middle_json.json()["schema"] == "docvortex.middle"
         assert middle_json.json()["schema_version"] == "2.0"
+
+        manifest = live_client.get(f"/api/runs/{run_id}/artifacts")
+        assert manifest.status_code == 200
+        roots = {root["id"]: root for root in manifest.json()["roots"]}
+        assert {"source-document", "canonical-document", "schema-extraction"} <= roots.keys()
+        canonical_file = next(
+            entry for entry in roots["canonical-document"]["entries"]
+            if entry["name"] == "document.json"
+        )
+        assert canonical_file["mime_type"] == "application/json"
+        canonical_content = live_client.get(canonical_file["content_url"])
+        assert canonical_content.status_code == 200
+        assert canonical_content.json()["schema"] == "dataweave.document.v1"
+        download = live_client.get(canonical_file["download_url"])
+        assert "attachment" in download.headers["content-disposition"]
+        traversal = live_client.get(
+            f"/api/runs/{run_id}/artifacts/canonical-document/content",
+            params={"path": "../dataweave.db"},
+        )
+        assert traversal.status_code == 400
 
         run_log = live_client.get(f"/api/runs/{run_id}/logs")
         assert run_log.status_code == 200

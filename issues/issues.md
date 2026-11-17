@@ -66,6 +66,7 @@
 | `DW-055` | [#55](https://github.com/spewmeps/DataWeave/issues/55) | Feature | P0 | backend | Open | 实现 RAGFlow 基础检索网关和权限过滤 |
 | `DW-056` | [#56](https://github.com/spewmeps/DataWeave/issues/56) | Feature | P1 | backend | Open | 实现 DataWeave 统一 Chat Completion 与可选 RAGFlow Chat 模式 |
 | `DW-057` | [#57](https://github.com/spewmeps/DataWeave/issues/57) | Feature | P0 | fullstack | Open | 实现前端知识库配置与数据位置标记 |
+| `DW-058` | [#58](https://github.com/spewmeps/DataWeave/issues/58) | Feature | P0 | fullstack | Open | 增加任务输入输出与运行产物浏览器 |
 | `DW-046` | [#46](https://github.com/spewmeps/DataWeave/issues/46) | Bug | P1 | frontend | Open | 修复领域上下文预览任务与后端运行进度不一致 |
 | `DW-047` | [#47](https://github.com/spewmeps/DataWeave/issues/47) | Bug | P1 | fullstack | Open | 修复模板配置仅保存在浏览器导致跨设备丢失 |
 | `DW-048` | [#48](https://github.com/spewmeps/DataWeave/issues/48) | Bug | P1 | fullstack | Open | 修复领域上下文审核刷新后状态丢失 |
@@ -730,6 +731,26 @@
 - [ ] Provider Mock、加密持久化、Dataset 创建/复用和存储标记有后端测试；前端生产构建通过。
 ### 非目标
 - 本 Issue 不迁移或上传已有文章到 RAGFlow；文档同步由 DW-052/DW-053 完成。
+<!-- /issue-body -->
+
+---
+
+## [DW-058] 增加任务输入输出与运行产物浏览器
+<!-- issue: number=58; state=open; labels=enhancement,priority:P0,area:fullstack,observability,artifacts; assignees= -->
+<!-- issue-body -->
+### 背景
+- 解析运行虽然已有输入、输出和原始数据标签，但只展示 Task 快照，JSON 文件、输出目录和目录内文件无法在页面内查看。
+### 范围
+- 为每个任务保存可识别的实际输入参数，并用统一 JSON 查看器展示输入、输出和完整 Task Snapshot。
+- 采用 Artifact Registry/Explorer 模式，按运行登记原始输入、Parser 输出、Document JSON、Schema 提取结果和运行日志。
+- 提供运行级产物清单和受控文件读取 API；目录映射到实际后端产物目录，但不向前端暴露绝对服务器路径。
+- 前端支持展开目录树，内嵌预览 JSON、Markdown、文本、JSONL、图片和 PDF，并支持下载文件。
+### 验收标准
+- [ ] 任意任务都可查看输入和输出 JSON，并支持复制和下载快照。
+- [ ] JSON 输出文件可在页面内解析并格式化展示，不需要下载后手工打开。
+- [ ] 输出文件夹按任务关联展示，文件夹可展开，文件可点击预览或下载。
+- [ ] 文件 API 只能访问当前运行登记的产物根，目录穿越请求被拒绝。
+- [ ] Artifact Manifest、JSON 内容读取、下载响应和目录穿越保护有后端测试；前端生产构建通过。
 <!-- /issue-body -->
 
 # Known Bugs · 已知缺陷

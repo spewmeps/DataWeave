@@ -198,7 +198,7 @@ class RunManager:
     ) -> RunSnapshot:
         run_id = new_id("run")
         now = utc_now()
-        tasks = self._build_tasks()
+        tasks = self._build_tasks(request)
         snapshot = RunSnapshot(
             id=run_id,
             document_id=request.document_id,
@@ -511,6 +511,18 @@ class RunManager:
             await self._fail_task(run_id, "extract", str(error))
             await self._set_run_status(run_id, RunStatus.FAILED)
             return
+
+        # The orchestrator owns the durable output contract even when an
+        # extractor implementation only returns an in-memory result.
+        if not extraction_result.artifact_path:
+            extraction_dir = settings.extraction_dir / run_id
+            extraction_dir.mkdir(parents=True, exist_ok=True)
+            extraction_path = extraction_dir / "schema_fields.json"
+            extraction_path.write_text(
+                extraction_result.model_dump_json(indent=2, by_alias=True),
+                encoding="utf-8",
+            )
+            extraction_result.artifact_path = str(extraction_path)
 
         await self._set_task_status(run_id, "schema_merge", TaskStatus.RUNNING)
         await self._complete_parent(
@@ -868,7 +880,7 @@ class RunManager:
             current_task=running,
         )
 
-    def _build_tasks(self) -> list[TaskNode]:
+    def _build_tasks(self, request: CreateRunRequest) -> list[TaskNode]:
         def node(
             task_id: str,
             name: str,
@@ -895,28 +907,51 @@ class RunManager:
             node("hybrid_retrieval", "Hybrid Retrieval Store", "storage_target", "将全文、稀疏向量和稠密向量写入混合检索索引。", "HybridIndexWriter", {"source": "document_json", "backend": "search_vector_index", "configurable": True}),
         ]
         return [
-            node("receive", "输入接收与校验", "ingestion", "验证文件类型、大小和校验和，并登记不可变源版本。", "InputGateway", {"input": "document_version"}),
+            node("receive", "输入接收与校验", "ingestion", "验证文件类型、大小和校验和，并登记不可变源版本。", "InputGateway", {
+                "document_id": request.document_id,
+                "document_version_id": request.document_version_id,
+                "filename": request.document_name,
+                "template_id": request.template_id,
+                "template_version": request.template_version,
+            }),
             node(
                 "parse",
                 "内容解析与标准化",
                 "parser",
                 "通过可替换 Parser Adapter 异步生成 Markdown、Middle JSON、Structured Content 与图片资源。",
                 "MinerUParserAdapter",
-                {"parser": "mineru", "execution": "remote_async", "outputs": ["markdown", "middle_json", "structured_content", "images"]},
+                {
+                    "document_version_id": request.document_version_id,
+                    "filename": request.document_name,
+                    "parser": "mineru",
+                    "execution": "remote_async",
+                    "outputs": ["markdown", "middle_json", "structured_content", "images"],
+                },
                 [
                     node("parser_submit", "提交远程解析", "parser_remote", "向 MinerU Tasks API 创建解析任务并登记服务端任务 ID。", "MinerUTransport", {"output_format": "default"}),
                     node("parser_wait", "等待远程结果", "parser_remote", "异步轮询远程任务并同步处理进度。", "MinerUTransport", {"mode": "poll"}),
                     node("parser_persist", "保存解析产物", "artifact", "将 Markdown、Middle JSON、Structured Content 与图片保存到本地并登记数据库。", "LocalArtifactStore", {"repository": "sqlite"}),
                 ],
             ),
-            node("document_json", "统一 Document JSON", "canonicalization", "组装与场景无关的标准 JSON，统一元数据、页面、章节、Block 和证据锚点。", "DocumentCompiler", {"source": "normalized_blocks", "schema": "dataweave.document.v1"}),
+            node("document_json", "统一 Document JSON", "canonicalization", "组装与场景无关的标准 JSON，统一元数据、页面、章节、Block 和证据锚点。", "DocumentCompiler", {
+                "document_id": request.document_id,
+                "document_version_id": request.document_version_id,
+                "source": "parser.structured_content + parser.middle_json",
+                "schema": "dataweave.document.v1",
+            }),
             node(
                 "extract",
                 "Schema 字段映射",
                 "extraction",
                 "使用 Deep Agents Supervisor 并行调度专业子 Agent，从统一 Document JSON 映射字段并绑定证据。",
                 "DeepAgentsSchemaMapper",
-                {"source": "document_json", "template": "runtime_selected", "execution": "parallel_subagents"},
+                {
+                    "source": "document_json",
+                    "template_id": request.template_id,
+                    "template_version": request.template_version,
+                    "enabled_elements": request.enabled_elements,
+                    "execution": "parallel_subagents",
+                },
                 [
                     node("schema_metadata", "Metadata Agent", "extraction_agent", "提取标题、作者、机构、国家、日期和作者关键词。", "DeepAgent", {"group": "metadata"}),
                     node("schema_research", "Research Agent", "extraction_agent", "提取领域、创新、研究问题与核心贡献。", "DeepAgent", {"group": "research"}),
@@ -925,7 +960,11 @@ class RunManager:
                     node("schema_merge", "结果合并与校验", "extraction_merge", "合并子 Agent 结果，补齐缺失字段并校验证据与类型。", "SchemaResultMerger", {"schema": "dataweave.schema-extraction.v1"}),
                 ],
             ),
-            node("materialize", "存储目标物化", "materialization", "将同一份 Document JSON 投影到已启用的后端存储介质。", "StorageOrchestrator", {"source": "document_json", "mode": "configurable"}, storage_children),
+            node("materialize", "存储目标物化", "materialization", "将同一份 Document JSON 投影到已启用的后端存储介质。", "StorageOrchestrator", {
+                "source": "document_json",
+                "storage_targets": [str(target) for target in request.storage_targets],
+                "mode": "configurable",
+            }, storage_children),
             node("validate", "质量门禁", "validation", "统一校验 Document JSON、Schema 输出、证据引用和存储写入结果。", "QualityGate", {"gates": 7}),
             node("publish", "版本发布", "publication", "审核后发布不可变的文档与知识产物版本。", "ArtifactPublisher", {"requires_review": True}),
         ]

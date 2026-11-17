@@ -82,6 +82,31 @@ class TaskNode(BaseModel):
     storage_locations: list[StorageLocation] = Field(default_factory=sqlite_storage)
 
 
+class ArtifactTreeEntry(BaseModel):
+    name: str
+    path: str
+    kind: Literal["file", "directory"]
+    size: int | None = None
+    mime_type: str | None = None
+    content_url: str | None = None
+    download_url: str | None = None
+    children: list["ArtifactTreeEntry"] = Field(default_factory=list)
+
+
+class ArtifactRoot(BaseModel):
+    id: str
+    label: str
+    description: str
+    task_ids: list[str]
+    entries: list[ArtifactTreeEntry] = Field(default_factory=list)
+    storage_locations: list[StorageLocation] = Field(default_factory=local_file_storage)
+
+
+class RunArtifactManifest(BaseModel):
+    run_id: str
+    roots: list[ArtifactRoot] = Field(default_factory=list)
+
+
 class AgentTraceEvent(BaseModel):
     timestamp: str
     level: str = "INFO"
