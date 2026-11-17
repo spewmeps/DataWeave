@@ -1,0 +1,35 @@
+[project]
+name = "dataweave-backend"
+version = "0.1.0"
+description = "DataWeave paper ingestion demo API"
+requires-python = ">=3.11"
+dependencies = [
+  "cryptography>=45,<51",
+  "fastapi>=0.115,<1",
+  "httpx>=0.28,<1",
+  "python-multipart>=0.0.20,<1",
+  "python-dotenv>=1.1,<2",
+  "pydantic>=2.10,<3",
+  "uvicorn[standard]>=0.34,<1",
+  "deepagents>=0.7.33,<0.8",
+  "langchain-openai>=1.0,<2",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8,<10",
+  "pytest-asyncio>=0.25,<1",
+]
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["dataweave*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
