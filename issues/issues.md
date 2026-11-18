@@ -67,6 +67,10 @@
 | `DW-056` | [#56](https://github.com/spewmeps/DataWeave/issues/56) | Feature | P1 | backend | Open | 实现 DataWeave 统一 Chat Completion 与可选 RAGFlow Chat 模式 |
 | `DW-057` | [#57](https://github.com/spewmeps/DataWeave/issues/57) | Feature | P0 | fullstack | Open | 实现前端知识库配置与数据位置标记 |
 | `DW-058` | [#58](https://github.com/spewmeps/DataWeave/issues/58) | Feature | P0 | fullstack | Open | 增加任务输入输出与运行产物浏览器 |
+| `DW-059` | [#59](https://github.com/spewmeps/DataWeave/issues/59) | Feature | P0 | backend | Open | 定义 Source Structure 与坐标定位契约 |
+| `DW-060` | [#60](https://github.com/spewmeps/DataWeave/issues/60) | Feature | P0 | ingestion | Open | 实现解析器归一化与 Section/Block/Location 索引 |
+| `DW-061` | [#61](https://github.com/spewmeps/DataWeave/issues/61) | Feature | P0 | backend | Open | 建立 RAGFlow Chunk–Block 双向 Span 映射 |
+| `DW-062` | [#62](https://github.com/spewmeps/DataWeave/issues/62) | Feature | P1 | backend | Open | 建设统一 Claim–Evidence 证据链 |
 | `DW-046` | [#46](https://github.com/spewmeps/DataWeave/issues/46) | Bug | P1 | frontend | Open | 修复领域上下文预览任务与后端运行进度不一致 |
 | `DW-047` | [#47](https://github.com/spewmeps/DataWeave/issues/47) | Bug | P1 | fullstack | Open | 修复模板配置仅保存在浏览器导致跨设备丢失 |
 | `DW-048` | [#48](https://github.com/spewmeps/DataWeave/issues/48) | Bug | P1 | fullstack | Open | 修复领域上下文审核刷新后状态丢失 |
@@ -416,9 +420,14 @@
 <!-- issue: number=30; state=open; labels=enhancement,priority:P1,area:frontend,evidence,pdf; assignees= -->
 <!-- issue-body -->
 ### 范围
-- PDF Viewer 通过 DataWeave API 获取 RAGFlow 文章/Chunk，按页码或坐标定位定义和 Mention，缺坐标时降级为页码加 Quote；前端不得持有 RAGFlow Key。
+- PDF.js Viewer 通过 DataWeave Source Locator API 获取正确 Source Version，使用归一化 BBox 支持单页多矩形与跨页高亮；缺坐标时依次降级为页码加 Quote、仅页码。
+- 页面旋转、CropBox/MediaBox 与 Provider 坐标原点转换必须由后端统一处理；前端不得持有 RAGFlow Key 或服务器文件路径。
 ### 验收标准
-- [ ] 可准确核对原文，文档版本或 chunk revision 不匹配时阻止错误定位；RAGFlow 不可用时明确显示原文暂不可取。
+- [ ] 可准确核对原文并区分原文 Quote、模型概括和 Claim；支持一个 Evidence 的多个矩形与跨页位置。
+- [ ] Source Version、Block revision 或 chunk revision 不匹配时阻止错误定位；RAGFlow 不可用或坐标缺失时明确显示降级原因。
+- [ ] 在双栏、旋转页、公式、跨页表格和扫描 PDF 样本上执行端到端定位评测，并记录页码准确率与高亮命中率。
+### 依赖
+- DW-059、DW-060、DW-061。
 <!-- /issue-body -->
 
 # M4 · 知识产物
@@ -438,9 +447,12 @@
 <!-- issue: number=32; state=open; labels=enhancement,priority:P1,area:backend,artifacts,page-index; assignees= -->
 <!-- issue-body -->
 ### 范围
-- 基于 RAGFlow Chunk 与位置信息构建章节、页面、Block 层级，保存 DataWeave 稳定 ID、远端引用、文本范围、位置和版本。
+- 基于 DataWeave Source Structure 构建 Section Tree 和页面导航，Block 是稳定结构锚点，RAGFlow Chunk 仅作为带 revision 的检索引用。
+- 保存 Section 父子关系、阅读顺序、Block 范围、Source Version、构建器版本和结构 revision。
 ### 验收标准
-- [ ] 可从层级导航到原文，同输入稳定重建并记录构建器版本。
+- [ ] 可从章节层级导航到 Block 和原文 Locator；同输入稳定重建，Provider element ref 不作为跨版本业务主键。
+### 依赖
+- DW-059、DW-060。
 <!-- /issue-body -->
 
 ---
@@ -751,6 +763,88 @@
 - [ ] 输出文件夹按任务关联展示，文件夹可展开，文件可点击预览或下载。
 - [ ] 文件 API 只能访问当前运行登记的产物根，目录穿越请求被拒绝。
 - [ ] Artifact Manifest、JSON 内容读取、下载响应和目录穿越保护有后端测试；前端生产构建通过。
+<!-- /issue-body -->
+
+---
+
+# M8 · 原文结构与证据溯源
+
+## [DW-059] 定义 Source Structure 与坐标定位契约
+<!-- issue: number=59; state=open; labels=enhancement,priority:P0,area:backend,architecture,evidence; assignees= -->
+<!-- issue-body -->
+### 背景
+- 现有 Document JSON、PageIndex 和 Evidence 只约定目标，没有统一稳定 Block、页面几何和坐标转换契约，无法保证跨解析器与跨版本定位一致。
+### 范围
+- 定义 `dataweave.source-structure.v1`：Paper、Source Version、Page、Section、Source Block、Block Location 和结构 revision。
+- 统一 PDF 物理页码、左上角归一化 BBox、字符半开区间、Unicode offset、页面尺寸、rotation、CropBox/MediaBox 和 Provider 原始坐标留痕。
+- 定义确定性业务 ID、内容 Hash、Provider ref 边界、版本失效和 `STALE` 传播规则。
+- 定义 Source Structure Repository、DTO、JSON Schema 与 OpenAPI 契约；DataWeave 不复制 RAGFlow 通用 Chunk 正文。
+### 验收标准
+- [ ] Schema 示例和契约测试覆盖跨页 Block、多矩形、旋转页面、空文本图表和同论文多 Source Version。
+- [ ] Provider element ref 不作为永久主键；所有定位对象绑定具体 Source Version 和结构 revision。
+- [ ] 坐标转换约定可供后端 Locator 和 PDF.js 使用，不存在 0/1 基页码或坐标原点歧义。
+### 设计
+- `design-docs/source-structure-and-evidence-traceability-design.md`
+<!-- /issue-body -->
+
+---
+
+## [DW-060] 实现解析器归一化与 Section/Block/Location 索引
+<!-- issue: number=60; state=open; labels=enhancement,priority:P0,area:ingestion,parser,evidence; assignees= -->
+<!-- issue-body -->
+### 背景
+- 当前 Pipeline 将 Provider 页面和 Block 直接带入 Document JSON，没有强制稳定 ID、章节树、位置规范化和独立持久化。
+### 范围
+- 建立 Parser Adapter，将当前 RAGFlow/MinerU 输出转换为 DW-059 的 Source Structure；保留原始 Artifact、parser/schema 版本和转换报告。
+- 持久化 Page、Section、Block、Location，恢复阅读顺序和章节父子关系，并支持一个 Block 多页/多矩形。
+- 增加坐标转换、结构完整性、阅读顺序和确定性重建校验；Docling/GROBID 仅作为可插拔 POC Adapter，不预设替换当前主链路。
+- Parser 或规范化版本变化时产生新结构 revision，并标记依赖映射与 Evidence 待重建。
+### 验收标准
+- [ ] 相同 Source Version 与 Adapter 版本重跑得到稳定 ID 和相同结构 Hash。
+- [ ] 双栏、公式、表格、跨页和旋转页面样本可查询 Section Tree、Block 和规范化 Locator。
+- [ ] Provider 原始坐标与归一化坐标均可审计，转换误差有自动化测试。
+### 依赖
+- DW-052、DW-053、DW-059。
+<!-- /issue-body -->
+
+---
+
+## [DW-061] 建立 RAGFlow Chunk–Block 双向 Span 映射
+<!-- issue: number=61; state=open; labels=enhancement,priority:P0,area:backend,ragflow,retrieval,evidence; assignees= -->
+<!-- issue-body -->
+### 背景
+- 当前设计引用 RAGFlow Chunk 和位置，但没有 Chunk 与稳定 Block 的多对多字符区间，重新切片后证据定位可能失效。
+### 范围
+- 保存 RAGFlow document/chunk ID、chunk revision、顺序和内容 Hash，不在 DataWeave 重复保存通用向量与全文索引。
+- 在同步或切片生成阶段建立 `chunk_block_span`，同时保存 Chunk/Block 半开字符区间、映射方法、置信度和验证状态。
+- 提供 Chunk → Block/Locator 与 Block → 当前/历史 Chunk 的双向 API；revision 漂移后旧映射进入 `STALE`。
+- 为历史 Chunk 提供确定性文本对齐和低置信模糊回填，低置信结果不得冒充 verified。
+### 验收标准
+- [ ] 支持一个 Chunk 跨多个 Block、一个 Block 被多个 Chunk 覆盖及跨页 Chunk。
+- [ ] 检索命中可稳定回到正确 Source Version、Block Span 和 Locator；chunk revision 不匹配时拒绝旧映射。
+- [ ] 代表性 POC 的 Chunk–Block 字符覆盖率达到设计目标并按文档类型报告。
+### 依赖
+- DW-052、DW-054、DW-055、DW-059、DW-060。
+<!-- /issue-body -->
+
+---
+
+## [DW-062] 建设统一 Claim–Evidence 证据链
+<!-- issue: number=62; state=open; labels=enhancement,priority:P1,area:backend,evidence,artifacts; assignees= -->
+<!-- issue-body -->
+### 背景
+- 当前 Schema 字段和 Context 各自保存 Quote/Page，缺少跨模块公共 Evidence ID；找到相关原文也没有区分它是支持、反驳还是仅提及 Claim。
+### 范围
+- 建立公共 Evidence Store，Evidence 绑定 Source Version、Block/Span、Quote Hash、Locator、verification status 和 revision。
+- 建立 Claim、subject/predicate/object、实验限定条件 qualifiers、状态、审核和不可变发布版本。
+- 建立 Claim–Evidence `SUPPORTS` / `CONTRADICTS` / `MENTIONS` 关系和反向查询，保留抽取器、模型、规则及人工审核审计。
+- 迁移 Schema Extraction 与 Domain Context 的证据引用，使其消费公共 `evidence_id`；证据过期时传播到 Claim 和正式产物。
+### 验收标准
+- [ ] 原文 Quote、模型概括和 Claim 分离保存；相关片段不会自动标记为 SUPPORTS。
+- [ ] Claim 可回溯限定条件、Source Version、Block Span、PDF Locator 和审核记录，并支持冲突证据。
+- [ ] Evidence Support Precision 有评测集和发布门禁，无有效证据的 Claim 不得进入 Published Release。
+### 依赖
+- DW-022、DW-025、DW-028、DW-059、DW-060、DW-061。
 <!-- /issue-body -->
 
 # Known Bugs · 已知缺陷
